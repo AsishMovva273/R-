@@ -1,0 +1,108 @@
+library(httr)
+library(xml2)
+library(rvest)
+library(dplyr)
+
+years <- 2006:2023
+volumes <- 1:18
+year_volume_mapping <- data.frame(Year = years, Volume = volumes)
+
+input <- 2006
+volume_value <- year_volume_mapping$Volume[year_volume_mapping$Year== input]
+
+
+get_Abstracts = function(page){
+  page = read_html(link)
+  EachItem <- page %>% html_nodes(".c-listing__item")
+  abstract <- function(item) {
+    if (length(item %>% html_nodes("p")) == 0) {
+      return("Abstract Not Available")
+    } else {
+      return(item %>% html_nodes("p") %>% html_text())
+    }
+  }
+  abstract <- lapply(EachItem, abstract)
+  abstract <- gsub("\\s+|c\\(|\\\\n|\n", " ", abstract)
+  return(abstract)
+}
+
+get_keyword = function(article_link) {
+  for_keywords = read_html(article_link)
+  keywords = for_keywords %>% html_nodes("ul li span a") %>%html_text()
+  keywords = paste(keywords, collapse = ", ")
+  return(keywords)
+}
+
+get_AuthorEmail = function(article_link){
+  for_mails = read_html(article_link)
+  anchor_elements <- for_mails %>% html_nodes("a[href]")
+  urls <- html_attr(anchor_elements,"href")
+  mailto_strings <- urls[grepl("mailto:", urls)]
+  mailto_strings <- mailto_strings[1:(length(mailto_strings) - 2)]
+  mailto_strings <- paste(mailto_strings, collapse = ",")
+  only_mails <- gsub('mailto:', '', mailto_strings, fixed = TRUE)
+  return(only_mails)
+}
+
+get_PublishedDates = function(article_link){
+  for_Dates = read_html(article_link)
+  publish_date <- for_Dates %>% html_nodes("[data-track-action='publication date']") %>% html_text()
+  publish_date <- paste(publish_date, collapse = ",")
+  return(publish_date)
+}
+
+get_CorrespondanceAuthors = function(article_link){
+  article_page2 = read_html(article_link)
+  c_Authors <- article_page2 %>%html_nodes("a[data-corresp-id]") %>%html_text()
+  c_Authors<- paste(c_Authors, collapse =",")
+  return(c_Authors)
+}
+
+Final_Result = data.frame()
+
+if (volume_value %in% seq(1, 18, by=1)){
+  #Reading HTML of the base journal data to a variable using read_html
+  link = paste0("https://urldefense.com/v3/__https://ro-journal.biomedcentral.com/articles?query=&volume=*22,volume_value__;JQ!!DLa72PTfQgg!KDkCw0CRNv_KVISqxF64IVwlaf7tfPNTjmtlZHqEvEz_FehhfLPAGMBl9Q-gHaH7Qssw8nrVYm2PqVU7_RDmlYlU$ , "&searchType=&tab=keyword")
+  page = read_html(link)
+  #Getting the Article links under the journal
+  article_link = page %>% html_nodes(".c-listing__title a") %>% html_attr("href") %>% paste("https://urldefense.com/v3/__https://ro-journal.biomedcentral.com__;!!DLa72PTfQgg!KDkCw0CRNv_KVISqxF64IVwlaf7tfPNTjmtlZHqEvEz_FehhfLPAGMBl9Q-gHaH7Qssw8nrVYm2PqVU7_Rn6GCHV$ ", ., sep="")
+  #Get Titles
+  title = page %>% html_nodes(".c-listing__title a") %>% html_text()
+  #Author Names
+  authorName <- page %>%html_nodes(".c-listing__authors-list") %>%html_text()
+  #Correspondant Authors
+  Correspondance_Authors = sapply(article_link, FUN = get_CorrespondanceAuthors, USE.NAMES = FALSE)
+  #Get Author Emails
+  Co_Authors_Emails = sapply(article_link,FUN = get_AuthorEmail,USE.NAMES = FALSE)
+  #Published Dates
+  year = sapply(article_link, FUN = get_PublishedDates, USE.NAMES = FALSE)
+  #Abstracts
+  abstract = sapply(link,FUN = get_Abstracts, USE.NAMES = FALSE)
+  #Getting Keywords
+  keyword=sapply(article_link, FUN = get_keyword, USE.NAMES = FALSE)
+  
+  #Binding all the required details into the data frame
+  Final_Result = rbind(Final_Result, data.frame(title,authorName,Correspondance_Authors,Co_Authors_Emails,year,abstract,keyword,stringsAsFactors = FALSE))
+}
+column_names = c("Title","Author Name","Correspondance Authors","Correspondance Authors Email","Published Date","Abstract","Key words")
+colnames(Final_Result) = column_names
+write.csv(Final_Result,""C:\Users\npenugurthi\OneDrive\Desktop\ScrapedData\ScrapedData.csv",row.names = FALSE)
+
+# Creating a Bar plot using the Keywords and their occurrence
+keyword <- lapply(strsplit(keyword, " "), function(x) paste(x, collapse = ", "))
+keyword <- gsub("\\s+", " ", keyword)
+all_text <- paste(keyword, collapse = " ")
+# Split the combined text into words
+word_list <- unlist(strsplit(all_text, "\\s+"))
+# Create a frequency table for all words
+word_freq <- table(word_list)
+# Sort by frequency in descending order
+word_freq <- sort(word_freq, decreasing = TRUE)
+# Select the top 10 most common words
+top_words <- head(word_freq, 10)
+# Create a bar plot for word frequency
+barplot(top_words, main = "Top 10 Keywords Frequency", xlab = "Keywords", ylab = "Frequency", las=2)
+
+# Plot a histogram for the number of authors for each title
+Final_Result$NoAuthors <- sapply(strsplit(Final_Result$`Author Name`, ",\\s*"), length)
+plot(x = as.numeric(factor(Final_Result$Title)), y = Final_Result$NoAuthors, main = "Number of Authors per Title", xlab = "Title", ylab = "Number of Authors", col = "blue", pch = 16)
